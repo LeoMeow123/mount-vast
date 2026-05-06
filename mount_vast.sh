@@ -4,9 +4,18 @@ set -euo pipefail
 # Mount Salk VAST storage via CIFS/SMB
 # Usage: sudo bash mount_vast.sh
 
+# --- Resolve the invoking user (so sudo doesn't make us mount under /root) ---
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+REAL_UID="$(id -u "$REAL_USER")"
+REAL_GID="$(id -g "$REAL_USER")"
+
 SHARE="//10.7.40.84/talmo"
-MOUNT_POINT="$HOME/vast"
+MOUNT_POINT="$REAL_HOME/vast"
 CREDS_FILE="/etc/.smbcredentials.talmodata"
+
+echo "Mounting as user: $REAL_USER (uid=$REAL_UID, gid=$REAL_GID)"
+echo "Mount point: $MOUNT_POINT"
 
 # --- Install cifs-utils if missing ---
 if ! dpkg -s cifs-utils &>/dev/null; then
@@ -14,8 +23,8 @@ if ! dpkg -s cifs-utils &>/dev/null; then
     sudo apt-get update && sudo apt-get install -y cifs-utils
 fi
 
-# --- Create mount point ---
-mkdir -p "$MOUNT_POINT"
+# --- Create mount point (owned by the real user) ---
+sudo -u "$REAL_USER" mkdir -p "$MOUNT_POINT"
 
 # --- Create credentials file ---
 if [ ! -f "$CREDS_FILE" ]; then
@@ -36,9 +45,9 @@ else
 fi
 
 # --- Add fstab entry if not present ---
-FSTAB_LINE="${SHARE}/  ${MOUNT_POINT} cifs auto,credentials=${CREDS_FILE},uid=$(id -un),gid=$(id -gn),rw,file_mode=0777,dir_mode=0777,cache=loose 0 0"
+FSTAB_LINE="${SHARE}/  ${MOUNT_POINT} cifs auto,credentials=${CREDS_FILE},uid=${REAL_UID},gid=${REAL_GID},rw,file_mode=0777,dir_mode=0777,cache=loose 0 0"
 
-if grep -qF "$SHARE" /etc/fstab; then
+if grep -qF "${SHARE}/  ${MOUNT_POINT}" /etc/fstab; then
     echo "fstab entry already exists, skipping."
 else
     echo "Adding entry to /etc/fstab..."
